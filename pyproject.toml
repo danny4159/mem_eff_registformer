@@ -1,3 +1,14 @@
-[tool.uv.pip]
-extra-index-url = ["https://download.pytorch.org/whl/cu128"]
-find-links = ["https://whl.natten.org"]
+[project]
+name = "mem-eff-registformer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "h5py>=3.14.0",
+    "opencv-python>=4.12.0.88",
+    "torch-fidelity>=0.3.0",
+    "torchmetrics>=1.8.0",
+    "transformers[torch]>=4.53.3",
+    "wandb>=0.21.0",
+]
