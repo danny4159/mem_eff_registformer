@@ -11,10 +11,10 @@ wheels/
 .vscode
 
 # Large dataset
-data/*
-results/*
+# data/*
+# results/*
 wandb/*
-weights/*
+# weights/*
 outputs/*
 
 # Additional file types
@@ -36,3 +36,4 @@ outputs/*
 # *.bin
 # *.yaml
 # *.txt
+*.mdc
