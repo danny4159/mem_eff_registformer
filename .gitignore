@@ -1,0 +1,38 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.vscode
+
+# Large dataset
+data/*
+results/*
+wandb/*
+weights/*
+outputs/*
+
+# Additional file types
+# *.pt
+# *.pth
+*.h5
+# # *.nii
+# # *.nii.gz
+# *.zip
+# *.tar
+# *.safetensors
+# pretrained_models
+# *.ckpt
+
+# *.json
+# *.log
+# *.png
+# *.wandb
+# *.bin
+# *.yaml
+# *.txt
