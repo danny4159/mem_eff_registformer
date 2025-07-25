@@ -153,7 +153,7 @@ class ImageQualityMetrics:
     def _init_metrics(self):
         """Initialize all metrics"""
         self.ssim = StructuralSimilarityIndexMeasure(reduction="none").to(self.device)
-        self.psnr = PeakSignalNoiseRatio().to(self.device)
+        self.psnr = PeakSignalNoiseRatio(data_range=2.0).to(self.device)
         self.lpips = LearnedPerceptualImagePatchSimilarity().to(self.device)
         self.nmi = NormalizedMutualInfoScore().to(self.device)
         self.fid = FrechetInceptionDistance().to(self.device)

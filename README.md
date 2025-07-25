@@ -32,7 +32,7 @@ train.py와 test.py도 실행 가능.
 ```bash
 uv venv --python=python3.10
 source .venv/bin/activate
-uv pip install
+uv pip install --editable .
 ```
 
 위 명령어를 차례대로 실행하면 pyproject.toml과 uv.lock에 명시된 라이브러리들이 빠르게 설치되어 환경 구성이 완료됩니다.

@@ -14,7 +14,7 @@ wheels/
 # data/*
 # results/*
 wandb/*
-# weights/*
+weights/*
 outputs/*
 
 # Additional file types
