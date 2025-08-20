@@ -25,15 +25,6 @@ class ProposedSynthesisModule(nn.Module):
 
         ch = 1  # 단일 출력만 사용
 
-        self.guide_net = nn.Sequential(
-            nn.Conv2d(self.input_nc, int(self.feat_ch / 8), kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(int(self.feat_ch / 8), int(self.feat_ch / 8), kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(int(self.feat_ch / 8), int(self.feat_ch / 8), kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(0.2, inplace=True),
-        )
-        
         # 일부분에만 style_denorm -> 21, 22, 31, 32에만 적용 #TODO: feat_ch에 ref ch만큼 배수로
         self.conv0 = StyleConv(self.input_nc, self.feat_ch * ch, kernel_size=3,
                                                  activate=True, demodulate=self.demodulate, ch=ch, is_3d=self.is_3d)

@@ -70,7 +70,7 @@ class GANLoss(nn.Module):
         return loss if is_disc else loss * self.loss_weight
 
 
-class VGG_Model(nn.Module):
+class VGGModel(nn.Module):
     """VGG Model for feature extraction (기존 코드 기반)"""
     
     # VGG 19 layer mapping
@@ -91,7 +91,7 @@ class VGG_Model(nn.Module):
     }
     
     def __init__(self, listen_list=None):
-        super(VGG_Model, self).__init__()
+        super(VGGModel, self).__init__()
         from torchvision.models import VGG19_Weights
         vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1)
         self.vgg_model = vgg.features
@@ -121,14 +121,14 @@ class VGG_Model(nn.Module):
         return self.features
 
 
-class Distance_Type:
+class DistanceType:
     """Distance types for contextual loss"""
     L2_Distance = 0
     L1_Distance = 1
     Cosine_Distance = 2
 
 
-class Contextual_Loss(nn.Module):
+class ContextualLoss(nn.Module):
     """Contextual Loss (Style Loss) - 기존 코드 기반"""
     
     def __init__(
@@ -137,11 +137,11 @@ class Contextual_Loss(nn.Module):
         vgg=True,
         crop_quarter=True,
         max_1d_size=10000,
-        distance_type=Distance_Type.Cosine_Distance,
+        distance_type=DistanceType.Cosine_Distance,
         b=1.0,
         h=0.5,
     ):
-        super(Contextual_Loss, self).__init__()
+        super(ContextualLoss, self).__init__()
         listen_list = []
         self.layers_weights = {}
         try:
@@ -151,7 +151,7 @@ class Contextual_Loss(nn.Module):
             pass
             
         if vgg:
-            self.vgg_pred = VGG_Model(listen_list=listen_list)
+            self.vgg_pred = VGGModel(listen_list=listen_list)
         else:
             raise NotImplementedError("Only VGG is supported for now")
             
@@ -198,7 +198,7 @@ class Contextual_Loss(nn.Module):
                     vgg_gt[key], output_1d_size=self.max_1d_size
                 )
                 
-            loss_t = self.calculate_CX_Loss(vgg_images[key], vgg_gt[key])
+            loss_t = self.calculate_cx_loss(vgg_images[key], vgg_gt[key])
             loss += loss_t * self.layers_weights[key]
             
         return loss
@@ -211,7 +211,7 @@ class Contextual_Loss(nn.Module):
         if indices is None:
             indices = torch.randperm(S)[:n].contiguous().type_as(tensor).long()
             indices = indices.view(1, 1, -1).expand(N, C, -1)
-        indices = Contextual_Loss._move_to_current_device(indices)
+        indices = ContextualLoss._move_to_current_device(indices)
         res = torch.gather(tensor, index=indices, dim=-1)
         return res, indices
 
@@ -225,7 +225,7 @@ class Contextual_Loss(nn.Module):
     @staticmethod
     def _random_pooling(feats, output_1d_size=100):
         N, C, H, W = feats.size()
-        feats_sample, indices = Contextual_Loss._random_sampling(
+        feats_sample, indices = ContextualLoss._random_sampling(
             feats, output_1d_size**2, None
         )
         res = feats_sample.view(N, C, output_1d_size, output_1d_size)
@@ -259,9 +259,9 @@ class Contextual_Loss(nn.Module):
     @staticmethod
     def _create_using_dotP(I_features, T_features):
         assert I_features.size() == T_features.size()
-        I_features, T_features = Contextual_Loss._centered_by_T(I_features, T_features)
-        I_features = Contextual_Loss._normalized_L2_channelwise(I_features)
-        T_features = Contextual_Loss._normalized_L2_channelwise(T_features)
+        I_features, T_features = ContextualLoss._centered_by_T(I_features, T_features)
+        I_features = ContextualLoss._normalized_L2_channelwise(I_features)
+        T_features = ContextualLoss._normalized_L2_channelwise(T_features)
 
         N, C, H, W = I_features.size()
         cosine_dist = []
@@ -284,12 +284,12 @@ class Contextual_Loss(nn.Module):
         relative_dist = raw_distance / (div + epsilon)
         return relative_dist
 
-    def calculate_CX_Loss(self, I_features, T_features, average_over_scales=True, weight=None):
-        I_features = Contextual_Loss._move_to_current_device(I_features)
-        T_features = Contextual_Loss._move_to_current_device(T_features)
+    def calculate_cx_loss(self, I_features, T_features, average_over_scales=True, weight=None):
+        I_features = ContextualLoss._move_to_current_device(I_features)
+        T_features = ContextualLoss._move_to_current_device(T_features)
 
-        raw_distance = Contextual_Loss._create_using_dotP(I_features, T_features)
-        relative_distance = Contextual_Loss._calculate_relative_distance(raw_distance)
+        raw_distance = ContextualLoss._create_using_dotP(I_features, T_features)
+        relative_distance = ContextualLoss._calculate_relative_distance(raw_distance)
         exp_distance = torch.exp((self.b - relative_distance) / self.h)
         contextual_sim = exp_distance / torch.sum(exp_distance, dim=-1, keepdim=True)
         
@@ -365,7 +365,7 @@ import torch.nn as nn
 import numpy as np
 
 
-def get_gausian_filter(sigma, sz):
+def get_gaussian_filter(sigma, sz):
     xpos, ypos = torch.meshgrid(torch.arange(sz), torch.arange(sz))
     output = torch.ones([sz, sz, 1, 1])
     midpos = sz // 2
@@ -381,7 +381,7 @@ def gaussian_filter(img, n, sigma):
     sigma: standard deviation of the Gaussian distribution
     """
     # Create a Gaussian filter
-    gaussian_filter = get_gausian_filter(sigma, n)
+    gaussian_filter = get_gaussian_filter(sigma, n)
     # Add extra dimensions for the color channels and batch size
     gaussian_filter = gaussian_filter.view(1, 1, n, n)
     gaussian_filter = gaussian_filter.to(img.device)

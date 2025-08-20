@@ -11,29 +11,29 @@ wheels/
 .vscode
 
 # Large dataset
-# data/*
+data/*
 # results/*
 wandb/*
-weights/*
-outputs/*
+training_output/*
+pipeline_outputs/*
 
 # Additional file types
-# *.pt
-# *.pth
+*.pt
+*.pth
 *.h5
-# # *.nii
-# # *.nii.gz
+*.nii
+*.nii.gz
 # *.zip
 # *.tar
 # *.safetensors
 # pretrained_models
 # *.ckpt
 
-# *.json
-# *.log
-# *.png
-# *.wandb
-# *.bin
-# *.yaml
-# *.txt
+*.json
+*.log
+*.png
+*.wandb
+*.bin
+*.yaml
+*.txt
 *.mdc

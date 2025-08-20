@@ -15,51 +15,81 @@ from transformers.modeling_outputs import BaseModelOutput
 import numpy as np
 from typing import Dict, Any, Optional, Tuple, List
 import wandb
+import time
+from tqdm import tqdm
+import sys
+import os
 
-from .padain_synthesis import PadainSynthesisModel, PadainSynthesisConfig
-from .dataset import PadainSynthesisDataset
-from src.common.losses import GANLoss, Contextual_Loss, VGG_Model, PatchNCELoss, MINDLoss
-from .metrics import PadainSynthesisMetrics
+from .modeling_padain_synthesis import PadainSynthesisModel, PadainSynthesisConfig
+from src.common.datasets import Dataset as PadainSynthesisDataset
+from src.common.losses import GANLoss, ContextualLoss, VGGModel, PatchNCELoss, MINDLoss
+from src.common.base_metrics import BaseMetrics
 
 
 def padain_synthesis_data_collator(features):
     """
-    Custom data collator for PadainSynthesis that converts tuple format to dict format.
+    Custom data collator for PadainSynthesis dataset.
+    
+    Supports both H5 (tuple format) and NII (dict format) datasets.
     
     Args:
-        features: List of tuples (input_image, reference_image, C, D, E)
+        features: List of either tuples (input_image, reference_image, C, D, E) 
+                 or dictionaries {"mr": ..., "ct": ..., "mask": ...}
         
     Returns:
         Dictionary with batched tensors
     """
-    # Separate components
-    input_images, reference_images, Cs, Ds, Es = zip(*features)
-    
-    # Stack tensors
-    input_batch = torch.stack(input_images)
-    reference_batch = torch.stack(reference_images)
-    
-    # Handle optional components
-    C_batch = None
-    if any(c is not None for c in Cs):
-        C_batch = torch.stack([c for c in Cs if c is not None])
-    
-    D_batch = None
-    if any(d is not None for d in Ds):
-        D_batch = torch.stack([d for d in Ds if d is not None])
-    
-    E_batch = None
-    if any(e is not None for e in Es):
-        E_batch = torch.stack([e for e in Es if e is not None])
-    
-    # Return as dictionary for Transformers compatibility
-    return {
-        'input_image': input_batch,
-        'reference_image': reference_batch,
-        'C': C_batch,
-        'D': D_batch,
-        'E': E_batch
-    }
+    # Check if features are dictionaries (NII format) or tuples (H5 format)
+    if isinstance(features[0], dict):
+        # NII format: {"mr": ..., "ct": ..., "mask": ...}
+        mr_images = [f["mr"] for f in features]
+        ct_images = [f["ct"] for f in features]
+        mask_images = [f["mask"] for f in features]
+        
+        # Stack tensors
+        mr_batch = torch.stack(mr_images)
+        ct_batch = torch.stack(ct_images)
+        mask_batch = torch.stack(mask_images)
+        
+        # Return as dictionary for Transformers compatibility
+        return {
+            'input_image': mr_batch,      # MR as input
+            'reference_image': ct_batch,  # CT as reference
+            'mask': mask_batch,           # Mask
+            'C': None,                    # Not used for NII
+            'D': None,                    # Not used for NII
+            'E': None                     # Not used for NII
+        }
+    else:
+        # H5 format: (input_image, reference_image, C, D, E)
+        # Separate components
+        input_images, reference_images, Cs, Ds, Es = zip(*features)
+        
+        # Stack tensors
+        input_batch = torch.stack(input_images)
+        reference_batch = torch.stack(reference_images)
+        
+        # Handle optional components
+        C_batch = None
+        if any(c is not None for c in Cs):
+            C_batch = torch.stack([c for c in Cs if c is not None])
+        
+        D_batch = None
+        if any(d is not None for d in Ds):
+            D_batch = torch.stack([d for d in Ds if d is not None])
+        
+        E_batch = None
+        if any(e is not None for e in Es):
+            E_batch = torch.stack([e for e in Es if e is not None])
+        
+        # Return as dictionary for Transformers compatibility
+        return {
+            'input_image': input_batch,
+            'reference_image': reference_batch,
+            'C': C_batch,
+            'D': D_batch,
+            'E': E_batch
+        }
 
 
 class PadainSynthesisTrainer(Trainer):
@@ -80,6 +110,7 @@ class PadainSynthesisTrainer(Trainer):
                  eval_dataset: Optional[PadainSynthesisDataset] = None,
                  params: Optional[Dict[str, Any]] = None,
                  data_collator=None,
+                 slice_inferer=None,
                  **kwargs):
         """Initialize the PadainSynthesis trainer with loss functions and metrics."""
         
@@ -96,12 +127,17 @@ class PadainSynthesisTrainer(Trainer):
             **kwargs
         )
         
-        # Store training parameters
+        # Store training parameters and SliceInferer
         self.params = params or {}
+        self.slice_inferer = slice_inferer
         
         # Initialize loss functions and metrics
         self._setup_loss_functions()
         self._setup_metrics()
+        
+        self.start_time = None
+        self.step_times = []
+        self.last_log_time = time.time()
     
     def _setup_loss_functions(self):
         """Initialize all loss functions based on training parameters."""
@@ -114,7 +150,7 @@ class PadainSynthesisTrainer(Trainer):
                 "conv_4_2": 1.0,
                 "conv_4_4": 1.0
             }
-            self.contextual_loss = Contextual_Loss(style_layers)
+            self.contextual_loss = ContextualLoss(style_layers)
             if hasattr(self.contextual_loss, 'vgg_pred'):
                 self.contextual_loss.vgg_pred = self.contextual_loss.vgg_pred.cuda(0)
         else:
@@ -150,13 +186,13 @@ class PadainSynthesisTrainer(Trainer):
         
         # VGG model for PatchNCE (if needed)
         if self.params.get('nce_on_vgg', False):
-            self.vgg = VGG_Model(listen_list=["conv_4_2", "conv_5_4"])
+            self.vgg = VGGModel(listen_list=["conv_4_2", "conv_5_4"])
         else:
             self.vgg = None
     
     def _setup_metrics(self):
         """Initialize evaluation metrics."""
-        self.metrics = PadainSynthesisMetrics(
+        self.metrics = BaseMetrics(
             eval_on_align=False,  # Always use general metrics for evaluation
             device=self.model.device
         )
@@ -311,19 +347,13 @@ class PadainSynthesisTrainer(Trainer):
         """Get current loss dictionary for logging."""
         return getattr(self, 'current_loss_dict', {})
     
-    def log(self, logs: Dict[str, float], start_time: Optional[float] = None) -> None:
-        """Override logging to include custom loss components."""
-        # Add loss components to logs
-        if hasattr(self, 'current_loss_dict'):
-            for key, value in self.current_loss_dict.items():
-                logs[f"loss_{key}"] = value
-        
-        # Call parent logging
-        super().log(logs, start_time)
+
         
         # Log to wandb if enabled
         if self.args.report_to and "wandb" in self.args.report_to:
             wandb.log(logs)
+    
+
     
     def evaluation_step(self, model, inputs, prediction_loss_only=None, ignore_keys=None):
         """Custom evaluation step with metric updates."""
@@ -338,24 +368,64 @@ class PadainSynthesisTrainer(Trainer):
                 D = inputs.get('D')
                 E = inputs.get('E')
                 
-                # Forward pass
-                merged_input = torch.cat([input_image, reference_image], dim=1)
-                outputs = model(merged_input)
-                output_image = outputs.last_hidden_state
-                
-                # Always update metrics during evaluation, regardless of prediction_loss_only
-                self.metrics.update_metrics(
-                    real_a=input_image,      # input image
-                    real_b=reference_image,  # reference image
-                    fake_b=output_image      # output image
-                )
+                # Check if we need to use SliceInferer for 3D inputs
+                if self.slice_inferer is not None and len(input_image.shape) == 5:  # 3D input [B, C, H, W, D]
+                    # Use SliceInferer for 3D to 2D inference
+                    def model_wrapper(merged_input):
+                        outputs = model(merged_input)
+                        return outputs.last_hidden_state
+                    
+                    # Merge input and reference for SliceInferer
+                    merged_3d_input = torch.cat([input_image, reference_image], dim=1)  # [B, 2*C, H, W, D]
+                    
+                    # Apply SliceInferer
+                    output_image = self.slice_inferer(merged_3d_input, model_wrapper)
+                    
+                    # For metrics, update with ALL slices, not just middle slice
+                    for slice_idx in range(input_image.shape[-1]):
+                        input_slice = input_image[..., slice_idx]      # [B, C, H, W]
+                        reference_slice = reference_image[..., slice_idx]  # [B, C, H, W]
+                        output_slice = output_image[..., slice_idx]    # [B, C, H, W]
+                        
+                        # Update metrics with each 2D slice
+                        self.metrics.update_metrics(
+                            real_a=input_slice,      # input slice
+                            real_b=reference_slice,  # reference slice
+                            fake_b=output_slice      # output slice
+                        )
+                    
+                else:
+                    # Standard 2D processing
+                    merged_input = torch.cat([input_image, reference_image], dim=1)
+                    outputs = model(merged_input)
+                    output_image = outputs.last_hidden_state
+                    
+                    # Update metrics for 2D processing
+                    self.metrics.update_metrics(
+                        real_a=input_image,      # input image
+                        real_b=reference_image,  # reference image
+                        fake_b=output_image      # output image
+                    )
                 
                 # Handle prediction-only mode (only affects loss computation)
                 if prediction_loss_only:
-                    return (None, outputs, None)
+                    return (None, None, None)
                 
-                # Compute loss
-                loss = self.compute_loss(model, inputs)
+                # For loss computation, we need 2D data
+                if len(input_image.shape) == 5:
+                    # Use middle slice for loss computation
+                    mid_slice_idx = input_image.shape[-1] // 2
+                    loss_inputs = {
+                        'input_image': input_image[..., mid_slice_idx],
+                        'reference_image': reference_image[..., mid_slice_idx],
+                        'C': C[..., mid_slice_idx] if C is not None else None,
+                        'D': D[..., mid_slice_idx] if D is not None else None,
+                        'E': E[..., mid_slice_idx] if E is not None else None,
+                    }
+                    loss = self.compute_loss(model, loss_inputs)
+                else:
+                    loss = self.compute_loss(model, inputs)
+                
                 return (loss, None, None)
                 
             except Exception as e:
@@ -366,14 +436,23 @@ class PadainSynthesisTrainer(Trainer):
                        ignore_keys=None, metric_key_prefix="eval"):
         """Custom evaluation loop with metric computation."""
         
+        import time
+        
         eval_losses = []
+        total_batches = len(dataloader)
+        # Removed verbose evaluation start prints
         
         # Force prediction_loss_only to False for metric computation
         if prediction_loss_only is None:
             prediction_loss_only = False
         
-        # Process all batches
-        for step, batch in enumerate(dataloader):
+        # Process all batches with tqdm progress bar
+        pbar = tqdm(enumerate(dataloader), total=total_batches, desc=f"🔄 {description}", 
+                   unit="batch", leave=True, ncols=100)
+        
+        for step, batch in pbar:
+            batch_start_time = time.time()
+            
             # batch is now a dictionary from our custom data collator
             # Move each tensor to device
             inputs = {
@@ -384,12 +463,21 @@ class PadainSynthesisTrainer(Trainer):
             # Evaluation step - always compute metrics, but conditionally compute loss
             loss, _, _ = self.evaluation_step(self.model, inputs, prediction_loss_only, ignore_keys)
             
+            batch_time = time.time() - batch_start_time
+            
             if loss is not None:
                 eval_losses.append(loss.item())
+                pbar.set_postfix({'loss': f'{loss.item():.4f}', 'time': f'{batch_time:.2f}s'})
+            else:
+                pbar.set_postfix({'time': f'{batch_time:.2f}s', 'status': 'no loss'})
+        
+        pbar.close()
+        
+        # Computing final metrics...
         
         # Compute final metrics
         try:
-            metrics_dict = self.metrics.compute_metrics()
+            metrics_dict = self.metrics.compute_metrics(suffix="B")
         except Exception as e:
             print(f"Warning: Metrics computation failed: {e}. Using default values.")
             metrics_dict = {
@@ -410,6 +498,8 @@ class PadainSynthesisTrainer(Trainer):
         
         # Reset metrics for next evaluation
         self.metrics.reset_metrics()
+        
+        # Final metrics computed (removed verbose prints)
         
         return EvalLoopOutput(
             predictions=None,
@@ -444,6 +534,7 @@ def create_padain_synthesis_trainer(
     params: Dict[str, Any],
     eval_dataset: Optional[PadainSynthesisDataset] = None,
     data_collator=None,
+    slice_inferer=None,
     **kwargs
 ) -> PadainSynthesisTrainer:
     """
@@ -456,11 +547,13 @@ def create_padain_synthesis_trainer(
         params: Model parameters dictionary
         eval_dataset: Evaluation dataset (optional)
         data_collator: Data collator (optional)
+        slice_inferer: SliceInferer for 3D evaluation
         **kwargs: Additional arguments
         
     Returns:
         Configured PadainSynthesisTrainer instance
     """
+    from src.common.configs.base_training_args import create_training_arguments
     
     # Validate required parameters
     if training_args is None:
@@ -468,8 +561,8 @@ def create_padain_synthesis_trainer(
     if params is None:
         raise ValueError("params must be provided")
     
-    # Create TrainingArguments
-    args = TrainingArguments(**training_args)
+    # Create TrainingArguments using the common utility
+    args = create_training_arguments(**training_args)
     
     # Create and return trainer
     return PadainSynthesisTrainer(
@@ -479,6 +572,7 @@ def create_padain_synthesis_trainer(
         eval_dataset=eval_dataset,
         params=params,
         data_collator=data_collator,
+        slice_inferer=slice_inferer,
         **kwargs
     )
 

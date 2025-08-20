@@ -255,7 +255,12 @@ class ImageQualityMetrics:
             fid = self.fid.compute()
         except RuntimeError as e:
             if "More than one sample is required" in str(e):
-                print("Warning: FID 계산을 위한 샘플이 부족합니다. 0.0으로 설정합니다.")
+                # Get sample counts for debugging
+                real_samples = len(getattr(self.fid, 'real_features_sum', []))
+                fake_samples = len(getattr(self.fid, 'fake_features_sum', []))
+                print(f"⚠️ Warning: FID 계산을 위한 샘플이 부족합니다.")
+                print(f"   Real samples: {real_samples}, Fake samples: {fake_samples}")
+                print(f"   FID requires at least 2 samples. Setting to 0.0.")
                 fid = torch.tensor(0.0, device=self.device)
             else:
                 raise RuntimeError(f"FID compute failed: {e}")
@@ -267,7 +272,9 @@ class ImageQualityMetrics:
             if ("More than one sample is required" in str(e) or 
                 "No samples to concatenate" in str(e) or
                 "subset_size should be smaller" in str(e)):
-                print("Warning: KID 계산을 위한 샘플이 부족합니다. 0.0으로 설정합니다.")
+                print(f"⚠️ Warning: KID 계산을 위한 샘플이 부족합니다.")
+                print(f"   Error: {str(e)}")
+                print(f"   Setting to 0.0.")
                 kid_mean = torch.tensor(0.0, device=self.device)
             else:
                 raise RuntimeError(f"KID compute failed: {e}")
